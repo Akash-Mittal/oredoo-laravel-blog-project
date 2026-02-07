@@ -15,14 +15,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install ssh key
+      - name: Setup SSH
+        shell: bash
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          cat > ~/.ssh/config << 'CFG'
+          Host target
+            HostName ${{ secrets.SSH_HOST }}
+            User ${{ secrets.SSH_USER }}
+            Port ${{ secrets.SSH_PORT }}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            PreferredAuthentications publickey
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
+            ChallengeResponseAuthentication no
+            PubkeyAuthentication yes
+            StrictHostKeyChecking yes
+          CFG
+
           ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Sync files
+      - name: Test SSH (publickey only)
+        shell: bash
+        run: |
+          ssh -vvv target "echo SSH_OK && whoami && hostname"
+
+      - name: Sync files (rsync over forced SSH key)
+        shell: bash
         run: |
           rsync -az --delete \
             --exclude ".git" \
@@ -30,25 +53,25 @@ jobs:
             --exclude "node_modules" \
             --exclude "vendor" \
             --exclude ".env" \
-            -e "ssh -p ${{ secrets.SSH_PORT }} -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
-            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
+            -e "ssh -F ~/.ssh/config" \
+            ./ target:${{ secrets.DEPLOY_PATH }}/
 
-      - name: Run remote commands
+      - name: Remote install & cache clear
+        shell: bash
         run: |
-          ssh -p ${{ secrets.SSH_PORT }} -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+          ssh -F ~/.ssh/config target << 'EOF'
           set -e
           cd "${DEPLOY_PATH}"
-          if [ -f artisan ]; then
-            php -v 1>/dev/null
-          fi
+
           if command -v composer >/dev/null 2>&1; then
             composer install --no-dev --prefer-dist --no-interaction
           fi
+
           if [ -f artisan ]; then
-            php artisan config:clear
-            php artisan route:clear
-            php artisan view:clear
-            php artisan cache:clear
+            php artisan config:clear || true
+            php artisan route:clear || true
+            php artisan view:clear || true
+            php artisan cache:clear || true
           fi
           EOF
         env:
