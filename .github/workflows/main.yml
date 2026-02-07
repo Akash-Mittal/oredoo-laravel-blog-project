@@ -1,10 +1,12 @@
 name: Deploy to sia.mittal.blog
 
+# Trigger on push to main branch or manual trigger
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   workflow_dispatch:
 
+# Prevent multiple deploys from overlapping
 concurrency:
   group: deploy-sia
   cancel-in-progress: true
@@ -12,63 +14,26 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
+      # 1️⃣ Checkout your repo
       - uses: actions/checkout@v4
 
-      - name: Setup SSH files
-        shell: bash
+      # 2️⃣ Setup SSH with deploy key
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Start ssh-agent and add key (passphrase via SSH_ASKPASS)
-        shell: bash
-        env:
-          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
-        run: |
-          eval "$(ssh-agent -s)"
-
-          cat > /tmp/askpass.sh << 'EOF'
-          #!/usr/bin/env sh
-          echo "$SSH_PASSPHRASE"
-          EOF
-          chmod +x /tmp/askpass.sh
-
-          export SSH_ASKPASS=/tmp/askpass.sh
-          export SSH_ASKPASS_REQUIRE=force
-          export DISPLAY=:9999
-
-          setsid -w ssh-add ~/.ssh/deploy_key </dev/null
-
-          ssh-add -l
-
-      - name: SSH config
-        shell: bash
-        run: |
-          cat > ~/.ssh/config << 'CFG'
-          Host target
-            HostName ${{ secrets.SSH_HOST }}
-            User ${{ secrets.SSH_USER }}
-            Port ${{ secrets.SSH_PORT }}
-            IdentityFile ~/.ssh/deploy_key
-            IdentitiesOnly yes
-            PreferredAuthentications publickey
-            PasswordAuthentication no
-            KbdInteractiveAuthentication no
-            ChallengeResponseAuthentication no
-            PubkeyAuthentication yes
-            StrictHostKeyChecking yes
-          CFG
-
+      # 3️⃣ Test SSH connection
       - name: Test SSH
-        shell: bash
         run: |
-          ssh -vvv -F ~/.ssh/config target "echo SSH_OK && whoami && hostname"
+          ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "echo SSH_OK && whoami && hostname"
 
-      - name: Sync files
-        shell: bash
+      # 4️⃣ Sync files to Bluehost via rsync
+      - name: Sync files (rsync)
         run: |
           rsync -az --delete \
             --exclude ".git" \
@@ -76,20 +41,18 @@ jobs:
             --exclude "node_modules" \
             --exclude "vendor" \
             --exclude ".env" \
-            -e "ssh -F ~/.ssh/config" \
-            ./ target:${{ secrets.DEPLOY_PATH }}/
+            -e "ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }}" \
+            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
 
+      # 5️⃣ Remote commands: composer & Laravel cache clear
       - name: Remote install & cache clear
-        shell: bash
         run: |
-          ssh -F ~/.ssh/config target << 'EOF'
+          ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
           set -e
           cd "${DEPLOY_PATH}"
-
           if command -v composer >/dev/null 2>&1; then
             composer install --no-dev --prefer-dist --no-interaction
           fi
-
           if [ -f artisan ]; then
             php artisan config:clear || true
             php artisan route:clear || true
