@@ -20,15 +20,18 @@ jobs:
 
       - name: Deploy with rsync
         run: |
+          DEST="${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/"
+          echo "Deploying to $DEST"
+
           rsync -avvz --delete \
-            --exclude=.git \
-            --exclude=.github \
-            --exclude=node_modules \
-            --exclude=vendor \
-            --exclude=.env \
-            --exclude=storage/logs \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='vendor' \
+            --exclude='.env' \
+            --exclude='storage/logs' \
             -e "ssh -vvv -i ~/.ssh/id_ed25519 -p ${{ secrets.SSH_PORT }}" \
-            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
+            ./ "$DEST"
 
       - name: Run post-deploy commands on server
         run: |
