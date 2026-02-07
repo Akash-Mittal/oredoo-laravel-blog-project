@@ -2,7 +2,7 @@ name: Deploy to sia.mittal.blog
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 concurrency:
@@ -23,8 +23,10 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Start ssh-agent
+      - name: Start ssh-agent and add key (passphrase via SSH_ASKPASS)
         shell: bash
+        env:
+          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
         run: |
           eval "$(ssh-agent -s)"
 
@@ -50,6 +52,7 @@ jobs:
             HostName ${{ secrets.SSH_HOST }}
             User ${{ secrets.SSH_USER }}
             Port ${{ secrets.SSH_PORT }}
+            IdentityFile ~/.ssh/deploy_key
             IdentitiesOnly yes
             PreferredAuthentications publickey
             PasswordAuthentication no
@@ -82,9 +85,11 @@ jobs:
           ssh -F ~/.ssh/config target << 'EOF'
           set -e
           cd "${DEPLOY_PATH}"
+
           if command -v composer >/dev/null 2>&1; then
             composer install --no-dev --prefer-dist --no-interaction
           fi
+
           if [ -f artisan ]; then
             php artisan config:clear || true
             php artisan route:clear || true
@@ -94,5 +99,3 @@ jobs:
           EOF
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-        env:
-          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
