@@ -15,19 +15,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup SSH
+      - name: Setup SSH files
         shell: bash
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Start ssh-agent
+        shell: bash
+        run: |
+          eval "$(ssh-agent -s)"
+
+          cat > /tmp/askpass.sh << 'EOF'
+          #!/usr/bin/env sh
+          echo "$SSH_PASSPHRASE"
+          EOF
+          chmod +x /tmp/askpass.sh
+
+          export SSH_ASKPASS=/tmp/askpass.sh
+          export SSH_ASKPASS_REQUIRE=force
+          export DISPLAY=:9999
+
+          setsid -w ssh-add ~/.ssh/deploy_key </dev/null
+
+          ssh-add -l
+
+      - name: SSH config
+        shell: bash
+        run: |
           cat > ~/.ssh/config << 'CFG'
           Host target
             HostName ${{ secrets.SSH_HOST }}
             User ${{ secrets.SSH_USER }}
             Port ${{ secrets.SSH_PORT }}
-            IdentityFile ~/.ssh/deploy_key
             IdentitiesOnly yes
             PreferredAuthentications publickey
             PasswordAuthentication no
@@ -37,14 +59,12 @@ jobs:
             StrictHostKeyChecking yes
           CFG
 
-          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Test SSH (publickey only)
+      - name: Test SSH
         shell: bash
         run: |
-          ssh -vvv target "echo SSH_OK && whoami && hostname"
+          ssh -vvv -F ~/.ssh/config target "echo SSH_OK && whoami && hostname"
 
-      - name: Sync files (rsync over forced SSH key)
+      - name: Sync files
         shell: bash
         run: |
           rsync -az --delete \
@@ -62,11 +82,9 @@ jobs:
           ssh -F ~/.ssh/config target << 'EOF'
           set -e
           cd "${DEPLOY_PATH}"
-
           if command -v composer >/dev/null 2>&1; then
             composer install --no-dev --prefer-dist --no-interaction
           fi
-
           if [ -f artisan ]; then
             php artisan config:clear || true
             php artisan route:clear || true
@@ -76,3 +94,5 @@ jobs:
           EOF
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        env:
+          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
