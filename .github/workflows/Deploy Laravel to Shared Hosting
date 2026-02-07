@@ -18,17 +18,17 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy with rsync
-        run: |
-          rsync -az --delete \
-            --exclude=.git \
-            --exclude=.github \
-            --exclude=node_modules \
-            --exclude=vendor \
-            --exclude=.env \
-            --exclude=storage/logs \
-            -e "ssh -i ~/.ssh/id_ed25519 -p ${{ secrets.SSH_PORT }}" \
-            ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
+- name: Deploy with rsync
+  run: |
+    rsync -avvz --delete \
+      --exclude=.git \
+      --exclude=.github \
+      --exclude=node_modules \
+      --exclude=vendor \
+      --exclude=.env \
+      --exclude=storage/logs \
+      -e "ssh -vvv -i ~/.ssh/id_ed25519 -p ${{ secrets.SSH_PORT }}" \
+      ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
 
       - name: Run post-deploy commands on server
         run: |
