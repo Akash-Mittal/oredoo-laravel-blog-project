@@ -1,22 +1,16 @@
-name: Deploy to sia.mittal.blog
+name: Deploy Laravel site
 
-# Trigger on push to main branch or manual trigger
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
-
-# Prevent multiple deploys from overlapping
-concurrency:
-  group: deploy-sia
-  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout your repo
+      # 1️⃣ Checkout repository
       - uses: actions/checkout@v4
 
       # 2️⃣ Setup SSH with deploy key
@@ -32,27 +26,31 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "echo SSH_OK && whoami && hostname"
 
-      # 4️⃣ Sync files to Bluehost via rsync
-      - name: Sync files (rsync)
+      # 4️⃣ Sync files to server via rsync
+      - name: Sync files
         run: |
           rsync -az --delete \
             --exclude ".git" \
             --exclude ".github" \
             --exclude "node_modules" \
-            --exclude "vendor" \
             --exclude ".env" \
+            --exclude "vendor" \
             -e "ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }}" \
             ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
 
-      # 5️⃣ Remote commands: composer & Laravel cache clear
+      # 5️⃣ Install Composer dependencies and clear Laravel caches
       - name: Remote install & cache clear
         run: |
           ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
           set -e
           cd "${DEPLOY_PATH}"
-          if command -v composer >/dev/null 2>&1; then
+          
+          # Install Composer dependencies only if composer.json exists
+          if [ -f composer.json ]; then
             composer install --no-dev --prefer-dist --no-interaction
           fi
+          
+          # Clear Laravel caches only if artisan exists
           if [ -f artisan ]; then
             php artisan config:clear || true
             php artisan route:clear || true
