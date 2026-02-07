@@ -1,62 +1,43 @@
-name: Deploy Laravel site
+name: Deploy Laravel to Shared Hosting
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      # 1️⃣ Checkout repository
       - uses: actions/checkout@v4
 
-      # 2️⃣ Setup SSH with deploy key
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-      # 3️⃣ Test SSH connection
-      - name: Test SSH
-        run: |
-          ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "echo SSH_OK && whoami && hostname"
-
-      # 4️⃣ Sync files to server via rsync
-      - name: Sync files
+      - name: Deploy with rsync
         run: |
           rsync -az --delete \
-            --exclude ".git" \
-            --exclude ".github" \
-            --exclude "node_modules" \
-            --exclude ".env" \
-            --exclude "vendor" \
-            -e "ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }}" \
+            --exclude=.git \
+            --exclude=.github \
+            --exclude=node_modules \
+            --exclude=vendor \
+            --exclude=.env \
+            --exclude=storage/logs \
+            -e "ssh -i ~/.ssh/id_ed25519 -p ${{ secrets.SSH_PORT }}" \
             ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.DEPLOY_PATH }}/
 
-      # 5️⃣ Install Composer dependencies and clear Laravel caches
-      - name: Remote install & cache clear
+      - name: Run post-deploy commands on server
         run: |
-          ssh -i ~/.ssh/id_rsa -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
-          set -e
-          cd "${DEPLOY_PATH}"
-          
-          # Install Composer dependencies only if composer.json exists
-          if [ -f composer.json ]; then
-            composer install --no-dev --prefer-dist --no-interaction
-          fi
-          
-          # Clear Laravel caches only if artisan exists
-          if [ -f artisan ]; then
-            php artisan config:clear || true
-            php artisan route:clear || true
-            php artisan view:clear || true
-            php artisan cache:clear || true
-          fi
+          ssh -i ~/.ssh/id_ed25519 -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            cd ${{ secrets.DEPLOY_PATH }}
+            composer install --no-dev --optimize-autoloader --no-interaction
+            php artisan optimize:clear
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+            # php artisan migrate --force   # only if safe!
           EOF
-        env:
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
