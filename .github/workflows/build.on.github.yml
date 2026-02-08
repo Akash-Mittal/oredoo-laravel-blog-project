@@ -1,4 +1,4 @@
-name: Build Laravel Project
+name: build.on.github
 
 on:
   push:
