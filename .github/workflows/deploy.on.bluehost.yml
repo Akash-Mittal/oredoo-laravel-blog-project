@@ -45,5 +45,7 @@ jobs:
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
-            # php artisan migrate --force   # only if safe!
+            php artisan migrate
+            php artisan db:seed
+            php artisan serve
           EOF
